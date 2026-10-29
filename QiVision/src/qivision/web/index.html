@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QiVision 望衡</title>
+<style>
+  :root { --bg:#f6f4ef; --card:#fff; --fg:#2a2a26; --mut:#6b6b63; --acc:#2f6f5e; --bd:#e1ddd2; --warn:#b4531a; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#1a1b19; --card:#242522; --fg:#ecebe5; --mut:#9a9a90; --acc:#6fc2a8; --bd:#3a3b37; --warn:#e8935a; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; line-height:1.6; }
+  main { max-width:760px; margin:0 auto; padding:24px 16px 64px; }
+  h1 { margin:0; font-size:28px; } .slogan { color:var(--mut); margin:4px 0 20px; }
+  .card { background:var(--card); border:1px solid var(--bd); border-radius:12px; padding:16px; margin-bottom:16px; }
+  h2 { font-size:16px; margin:0 0 10px; }
+  label { display:block; font-size:14px; color:var(--mut); margin:8px 0 4px; }
+  input[type=text], input[type=number], select { width:100%; padding:8px; border:1px solid var(--bd); border-radius:8px; background:transparent; color:var(--fg); }
+  .sym { display:inline-block; margin:4px 10px 4px 0; font-size:14px; }
+  button { background:var(--acc); color:#fff; border:0; border-radius:8px; padding:10px 18px; font-size:15px; cursor:pointer; }
+  button:disabled { opacity:.5; }
+  ul { margin:6px 0; padding-left:20px; } .mut { color:var(--mut); font-size:13px; } .warn { color:var(--warn); }
+  .tag { display:inline-block; background:var(--acc); color:#fff; padding:2px 10px; border-radius:999px; font-size:13px; margin-right:6px; }
+  img.preview { max-width:100%; max-height:240px; border-radius:8px; margin-top:8px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>QiVision 望衡</h1>
+  <p class="slogan">以智能望诊,洞察体质平衡</p>
+
+  <div class="card">
+    <h2>① 拍摄指引</h2>
+    <ul id="guide"></ul>
+  </div>
+
+  <div class="card">
+    <h2>② 上传舌象与基本信息</h2>
+    <input type="file" id="image" accept="image/*" capture="environment">
+    <img id="preview" class="preview" hidden>
+    <label>用户 ID</label><input type="text" id="user" value="demo-user">
+    <label>年龄</label><input type="number" id="age" min="0" max="120">
+    <label><input type="checkbox" id="pregnant"> 孕期/哺乳期</label>
+    <label>过敏(逗号分隔)</label><input type="text" id="allergies">
+    <label>正在使用的药物(逗号分隔)</label><input type="text" id="medications">
+    <label>近期症状</label><div id="symptoms"></div>
+    <p><button id="go">开始分析</button></p>
+  </div>
+
+  <div id="result"></div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let sessionId = null;
+
+async function init() {
+  const g = await (await fetch('/v1/capture-guide')).json();
+  $('guide').innerHTML = g.guide.map(x => `<li>${x}</li>`).join('');
+  const s = await (await fetch('/v1/symptoms')).json();
+  const all = {...s.symptoms, ...s.red_flags};
+  $('symptoms').innerHTML = Object.entries(all).map(([k, v]) =>
+    `<label class="sym"><input type="checkbox" value="${k}"> ${v}</label>`).join('');
+}
+
+$('image').onchange = e => {
+  const f = e.target.files[0];
+  if (f) { $('preview').src = URL.createObjectURL(f); $('preview').hidden = false; }
+};
+
+const esc = t => String(t).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+$('go').onclick = async () => {
+  const f = $('image').files[0];
+  if (!f) return alert('请先选择舌象图片');
+  const fd = new FormData();
+  fd.append('image', f);
+  fd.append('user_id', $('user').value || 'demo-user');
+  if ($('age').value) fd.append('age', $('age').value);
+  fd.append('pregnant', $('pregnant').checked);
+  fd.append('allergies', $('allergies').value);
+  fd.append('medications', $('medications').value);
+  fd.append('symptoms', [...document.querySelectorAll('#symptoms input:checked')].map(i => i.value).join(','));
+  $('go').disabled = true; $('go').textContent = '分析中…';
+  try {
+    const r = await fetch('/v1/sessions/analyze', { method: 'POST', body: fd });
+    if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
+    render(await r.json());
+  } catch (e) { alert('分析失败:' + e.message); }
+  $('go').disabled = false; $('go').textContent = '开始分析';
+};
+
+function render(d) {
+  sessionId = d.session_id;
+  let h = '';
+  if (d.status === 'recapture') {
+    h += `<div class="card"><h2 class="warn">需要重新拍摄</h2><ul>${d.quality.issues.map(x => `<li>${esc(x)}</li>`).join('')}</ul>
+      <p class="mut">${d.quality.tips.map(esc).join(';')}</p></div>`;
+  } else {
+    const s = d.syndrome, t = d.tongue;
+    h += `<div class="card"><h2>③ 辨证结果</h2>
+      <p><span class="tag">${esc(s.primary_zh)}</span>${s.secondary_zh.map(x => `<span class="tag" style="opacity:.7">${esc(x)}</span>`).join('')}
+      平衡指数 <b>${s.balance_index}</b></p>
+      <p>${esc(s.explanation)}</p>
+      <p class="mut">舌象:舌质 ${t.body_color} / 苔 ${t.coat_color}(${t.coat_thickness}) / 津液 ${t.moisture} / 舌形 ${t.shape} /
+      齿痕 ${t.teeth_marks ? '有' : '无'} / 裂纹 ${t.cracks ? '有' : '无'} / 置信度 ${t.confidence} (${esc(t.analyzer)})</p>
+      <h2>辨证依据</h2><ul>${s.evidence.map(e => `<li>${esc(e.text)}</li>`).join('')}</ul></div>`;
+    if (d.status === 'referral') {
+      h += `<div class="card"><h2 class="warn">建议及时就医</h2><p>检测到:${s.red_flags.map(esc).join('、')}。以上症状需由医生评估,暂不提供产品推荐。</p></div>`;
+    } else {
+      const r = s.regimen;
+      h += `<div class="card"><h2>调理方案</h2>
+        <b>饮食</b><ul>${r.diet.map(x => `<li>${esc(x)}</li>`).join('')}</ul>
+        <b>起居</b><ul>${r.lifestyle.map(x => `<li>${esc(x)}</li>`).join('')}</ul>
+        <b>运动</b><ul>${r.exercise.map(x => `<li>${esc(x)}</li>`).join('')}</ul>
+        <b>宜避</b><ul>${r.avoid.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>`;
+      h += `<div class="card"><h2>④ 产品推荐</h2>` + (d.products.matches.length ?
+        d.products.matches.map(p => `<p><b>${esc(p.name)}</b> <span class="mut">${esc(p.form)}</span><br>
+          <span class="mut">${p.reasons.map(esc).join(';')}</span>
+          ${p.cautions.map(c => `<br><span class="warn">⚠ ${esc(c)}</span>`).join('')}</p>`).join('') :
+        '<p class="mut">暂无适合的产品。</p>') +
+        (d.products.excluded.length ? `<p class="mut">已排除:${d.products.excluded.map(e => esc(e.name) + '(' + esc(e.reason) + ')').join(';')}</p>` : '') + '</div>';
+      h += `<div class="card"><h2>⑤ 反馈</h2>
+        <label>已坚持天数</label><input type="number" id="fbdays" value="7" min="0">
+        <label>满意度(1-5)</label><select id="fbsat"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option></select>
+        <label><input type="checkbox" id="fbadv"> 使用后出现不适/不良反应</label>
+        <p><button onclick="sendFeedback()">提交反馈</button></p><div id="fbout" class="mut"></div></div>`;
+    }
+  }
+  h += `<p class="mut">${esc(d.disclaimer)}</p>`;
+  $('result').innerHTML = h;
+  $('result').scrollIntoView({ behavior: 'smooth' });
+}
+
+async function sendFeedback() {
+  const body = { adherence_days: +$('fbdays').value, satisfaction: +$('fbsat').value,
+                 adverse_reaction: $('fbadv').checked, symptom_changes: {} };
+  const r = await fetch(`/v1/sessions/${sessionId}/feedback`, { method: 'POST',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const d = await r.json();
+  $('fbout').innerHTML = '<ul>' + d.advice.map(x => `<li>${esc(x)}</li>`).join('') + '</ul>';
+}
+init();
+</script>
+</body>
+</html>
