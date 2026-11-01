@@ -146,7 +146,7 @@ QiVision/
 
 ## 项目简介
 
-**QiVision 望衡** 是由 **Qixiangli Health Technology(气象力健康科技)** 自主研发的智能舌诊与中医辨证 Agent。它以 AI 视觉技术为核心,结合中医望诊理论,帮助用户通过舌象图像完成体质识别与辨证分析,并匹配个性化调理方案与自研产品,形成完整闭环:
+**QiVision 望衡** 是由 **Qixiangli Health Technology(七巷礼健康科技)** 自主研发的智能舌诊与中医辨证 Agent。它以 AI 视觉技术为核心,结合中医望诊理论,帮助用户通过舌象图像完成体质识别与辨证分析,并匹配个性化调理方案与自研产品,形成完整闭环:
 
 **识别 → 方案 → 产品 → 反馈**
 
@@ -191,7 +191,7 @@ QiVision 不只是一次性给出结果:它会引导规范拍摄、输出结构�
 ## 快速开始
 
 ```bash
-git clone <你的仓库地址> && cd QiVision
+git clone && cd QiVision
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 cp .env.example .env          # 可选:填入 DASHSCOPE_API_KEY 启用通义千问
